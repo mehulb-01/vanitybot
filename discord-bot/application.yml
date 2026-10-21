@@ -1,0 +1,80 @@
+server:
+  port: 2333
+  address: 0.0.0.0
+
+lavalink:
+  plugins:
+    # Maintained YouTube source with latest September 2026 cipher & client fixes
+    - dependency: "dev.lavalink.youtube:youtube-plugin:2be8e542d3f6f178e048dca565892684c2e40177"
+      repository: "https://maven.lavalink.dev/snapshots"
+    # LavaSrc resolves Spotify/Apple Music/Deezer links to a playable source
+    # (they aren't directly streamable) without extra round-trips from the bot.
+    - dependency: "com.github.topi314.lavasrc:lavasrc-plugin:4.8.3"
+      repository: "https://maven.lavalink.dev/releases"
+
+  server:
+    password: "youshallnotpass"
+    sources:
+      youtube: false   # disabled here; the youtube-plugin below replaces it
+      soundcloud: true
+      bandcamp: true
+      twitch: true
+      vimeo: true
+      http: true
+      local: false
+
+    # --- latency-relevant tuning ---
+    bufferDurationMs: 1000       # 1s audio frame buffer to prevent stutter/starvation
+    frameBufferDurationMs: 10000 # 10s buffer absorbs network jitter smoothly
+    opusEncodingQuality: 10       # max quality opus encode, cheap on modern CPUs
+    resamplingQuality: HIGH
+    trackStuckThresholdMs: 15000  # 15s prevents premature track termination on minor lag
+    useSeekGhosting: true
+    youtubePlaylistLoadLimit: 6
+    playerUpdateInterval: 5
+    gc-warnings: true
+
+
+
+plugins:
+  youtube:
+    enabled: true
+    allowSearch: true
+    allowDirectVideoIds: true
+    allowDirectPlaylistIds: true
+    clients:
+      - MUSIC
+      - ANDROID
+      - IOS
+      - ANDROID_MUSIC
+      - TV
+      - WEBEMBEDDED
+      - WEB
+      - ANDROID_VR
+      - MWEB
+      - TVHTML5_SIMPLY
+
+  lavasrc:
+    providers:
+      - "ytmsearch:\"%ISRC%\""
+      - "ytmsearch:%QUERY%"
+      - "ytsearch:\"%ISRC%\""
+      - "ytsearch:%QUERY%"
+      - "scsearch:%QUERY%"
+    sources:
+      spotify: false
+      applemusic: false
+      deezer: false
+
+metrics:
+  prometheus:
+    enabled: false
+
+logging:
+  level:
+    root: INFO
+    lavalink: INFO
+  logback:
+    rollingpolicy:
+      max-file-size: 50MB
+      max-history: 5

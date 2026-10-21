@@ -1,0 +1,213 @@
+// Discord Bot — Prisma schema
+// PHASE 1: Guild + GuildSettings only, to prove the database layer works
+// end-to-end. Economy, Moderation, and Music models are added in their
+// respective phases via `prisma migrate dev`.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// One row per Discord guild the bot has joined.
+model Guild {
+  id        String   @id // Discord snowflake, used as the primary key directly
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  settings GuildSettings?
+  serverGangSettings ServerGangSettings[]
+
+  @@index([name])
+}
+
+/// Configurable per-guild behavior. Created lazily (on first need) with
+/// sane defaults, never assumed to exist without a null-check.
+model GuildSettings {
+  id      String @id @default(cuid())
+  guildId String @unique
+  guild   Guild  @relation(fields: [guildId], references: [id], onDelete: Cascade)
+
+  // --- Moderation ---
+  modLogChannelId  String?
+  punishmentDmEnabled Boolean @default(true)
+  staffRoleIds     String[] @default([])
+  ignoredChannelIds String[] @default([])
+  ignoredRoleIds   String[] @default([])
+
+  // --- Economy ---
+  currencyName String @default("$")
+
+  // --- Music ---
+  musicChannelId String?
+  defaultVolume  Int    @default(50)
+
+  // --- Gangs ---
+  gangSettingsEnabled Boolean @default(false)
+  gangChannelId       String? // Designated "gangs" channel for syndicate verdicts and announcements
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([guildId])
+}
+
+/// 6 Global Gangs - created when bot starts
+model Gang {
+  id          String @id @default(cuid())
+  name        String @unique
+  displayName String
+  description String
+  color       String // Hex color for embeds
+  emoji       String // Gang emoji identifier
+  treasury    Float  @default(0) // Gang Vault / Treasury balance
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  members        UserGangMembership[]
+  serverSettings ServerGangSettings[]
+  boss           GangBoss?
+  votes          GangVote[]
+  quotaDeposits  GangQuotaDeposit[]
+
+  @@index([name])
+}
+
+/// Monthly elected or Syndicate-appointed Boss of a gang
+model GangBoss {
+  id         String   @id @default(cuid())
+  gangId     String   @unique
+  userId     String
+  electedAt  DateTime @default(now())
+  expiresAt  DateTime
+  electedBy  String   // "VOTE" | "RNG"
+  votesCount Int      @default(0)
+  termMonth  String   // e.g. "2026-09"
+
+  gang       Gang     @relation(fields: [gangId], references: [id], onDelete: Cascade)
+
+  @@index([gangId])
+  @@index([userId])
+}
+
+/// Member votes for monthly gang boss elections
+model GangVote {
+  id          String   @id @default(cuid())
+  gangId      String
+  voterId     String
+  candidateId String
+  month       String   // e.g. "2026-09"
+  createdAt   DateTime @default(now())
+
+  gang        Gang     @relation(fields: [gangId], references: [id], onDelete: Cascade)
+
+  @@unique([voterId, month])
+  @@index([gangId, month])
+}
+
+/// User's gang membership (global across all servers)
+model UserGangMembership {
+  id               String   @id @default(cuid())
+  userId           String
+  gangId           String
+  quotaContributed Int      @default(0)
+  joinedAt         DateTime @default(now())
+  
+  gang             Gang @relation(fields: [gangId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])
+  @@index([userId])
+  @@index([gangId])
+}
+
+/// Items owned by a user
+model UserInventoryItem {
+  id        String   @id @default(cuid())
+  userId    String
+  itemId    String   // Identifier e.g. "lockpick", "kevlar_vest", "c4_explosive", "burner_phone"
+  name      String
+  quantity  Int      @default(1)
+  value     Int      @default(0) // credit value per item
+  metadata  String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, itemId])
+  @@index([userId])
+}
+
+/// Daily quota contributions by gang members
+model GangQuotaDeposit {
+  id        String   @id @default(cuid())
+  userId    String
+  gangId    String
+  date      String   // "YYYY-MM-DD"
+  amount    Int      @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  gang      Gang     @relation(fields: [gangId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, date])
+  @@index([userId])
+  @@index([gangId, date])
+}
+
+/// Per-server gang role configuration
+model ServerGangSettings {
+  id        String @id @default(cuid())
+  guildId   String
+  gangId    String
+  roleId    String // Discord role ID for this gang on this server
+  
+  guild     Guild @relation(fields: [guildId], references: [id], onDelete: Cascade)
+  gang      Gang @relation(fields: [gangId], references: [id], onDelete: Cascade)
+
+  @@unique([guildId, gangId])
+  @@index([guildId])
+  @@index([gangId])
+}
+
+/// Track user voice channel time per guild
+model VoiceTime {
+  id              String   @id @default(cuid())
+  userId          String
+  guildId         String
+  totalSeconds    Int      @default(0)
+  currentSessionStart DateTime?
+  lastVoiceChannel String?
+  lastJoinTime    DateTime?
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([userId, guildId])
+  @@index([userId])
+  @@index([guildId])
+}
+
+/// Tracks user wallet, bank, and criminal record for the gang economy system
+model UserEconomy {
+  id           String    @id @default(cuid())
+  userId       String    @unique
+  wallet       Int       @default(500) // Starting seed money
+  bank         Int       @default(0)
+  bankCapacity Int       @default(25000)
+  jailUntil    DateTime?
+  lastCrimeAt  DateTime?
+  lastClockIn  DateTime?
+  crimesTotal  Int       @default(0)
+  crimesWon    Int       @default(0)
+  crimesLost   Int       @default(0)
+  netEarnings  Int       @default(0)
+  bountiesPaid Int       @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
+}
